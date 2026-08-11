@@ -9,6 +9,7 @@
 #define MAX_NOM 50
 #define MAX_FECHA 11
 #define MAX_HORA 6
+#define ARCHIVO_RESERVAS "reservas.txt"
 
 typedef struct {
     int id;
@@ -65,6 +66,52 @@ int leerEntero(char *msg) {
         return -1;
     }
     return val;
+}
+
+int fechaValida(char *fecha) {
+    int d, m, a;
+    if (sscanf(fecha, "%d/%d/%d", &d, &m, &a) != 3) {
+        return 0;
+    }
+    if (m < 1 || m > 12) return 0;
+    if (d < 1 || d > 31) return 0;
+    if (a < 2024 || a > 2100) return 0;
+
+    int diasPorMes[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (d > diasPorMes[m - 1]) return 0;
+
+    return 1;
+}
+
+int horaValida(char *hora) {
+    int h, min;
+    if (sscanf(hora, "%d:%d", &h, &min) != 2) {
+        return 0;
+    }
+    if (h < 0 || h > 23) return 0;
+    if (min < 0 || min > 59) return 0;
+    return 1;
+}
+
+// pide la fecha repetidamente hasta que el usuario meta una valida
+void leerFechaValida(char *dest, int tam) {
+    do {
+        printf("Fecha (DD/MM/AAAA): ");
+        leerLinea(dest, tam);
+        if (!fechaValida(dest)) {
+            printf("Fecha invalida, intenta de nuevo.\n");
+        }
+    } while (!fechaValida(dest));
+}
+
+void leerHoraValida(char *dest, int tam) {
+    do {
+        printf("Hora (HH:MM): ");
+        leerLinea(dest, tam);
+        if (!horaValida(dest)) {
+            printf("Hora invalida, intenta de nuevo.\n");
+        }
+    } while (!horaValida(dest));
 }
 
 void cargarLabsIniciales() {
@@ -138,10 +185,8 @@ void solicitarReserva() {
     s.idLab = listaLabs[idx].id;
     printf("Nombre del solicitante: ");
     leerLinea(s.solicitante, sizeof(s.solicitante));
-    printf("Fecha (DD/MM/AAAA): ");
-    leerLinea(s.fecha, sizeof(s.fecha));
-    printf("Hora (HH:MM): ");
-    leerLinea(s.hora, sizeof(s.hora));
+    leerFechaValida(s.fecha, sizeof(s.fecha));
+    leerHoraValida(s.hora, sizeof(s.hora));
 
     final = (final + 1) % MAX_COLA;
     cola[final] = s;
@@ -205,10 +250,8 @@ void cancelarReserva() {
     }
 
     char fecha[MAX_FECHA], hora[MAX_HORA];
-    printf("Fecha: ");
-    leerLinea(fecha, sizeof(fecha));
-    printf("Hora: ");
-    leerLinea(hora, sizeof(hora));
+    leerFechaValida(fecha, sizeof(fecha));
+    leerHoraValida(hora, sizeof(hora));
 
     for (int i = 0; i < totalReservas; i++) {
         if (reservas[i].activa && reservas[i].idLab == listaLabs[idx].id &&
@@ -246,6 +289,26 @@ void consultarDisponibilidad() {
     }
 }
 
+void buscarPorSolicitante() {
+    char nombre[MAX_NOM];
+    printf("Nombre del solicitante a buscar: ");
+    leerLinea(nombre, sizeof(nombre));
+
+    int encontrados = 0;
+    printf("\nFECHA      HORA  LAB SOLICITANTE          ESTADO\n");
+    for (int i = 0; i < totalReservas; i++) {
+        if (strcasecmp(reservas[i].solicitante, nombre) == 0) {
+            printf("%-10s %-5s %-3d %-20s %s\n", reservas[i].fecha, reservas[i].hora,
+                   reservas[i].idLab, reservas[i].solicitante,
+                   reservas[i].activa ? "Activa" : "Cancelada");
+            encontrados++;
+        }
+    }
+    if (encontrados == 0) {
+        printf("No se encontraron reservas de ese solicitante.\n");
+    }
+}
+
 // convierte fecha y hora a un numero para poder compararlas
 long convertirAOrden(char *fecha, char *hora) {
     int d, m, a, h, min;
@@ -278,6 +341,38 @@ void mostrarHistorial() {
     printf("Total: %d\n", totalReservas);
 }
 
+void guardarReservas() {
+    FILE *f = fopen(ARCHIVO_RESERVAS, "w");
+    if (f == NULL) {
+        printf("No se pudo guardar el archivo.\n");
+        return;
+    }
+    for (int i = 0; i < totalReservas; i++) {
+        fprintf(f, "%d;%s;%s;%s;%d\n", reservas[i].idLab, reservas[i].solicitante,
+                reservas[i].fecha, reservas[i].hora, reservas[i].activa);
+    }
+    fclose(f);
+}
+
+void cargarReservas() {
+    FILE *f = fopen(ARCHIVO_RESERVAS, "r");
+    if (f == NULL) {
+        return; // no hay archivo previo, se arranca vacio
+    }
+
+    while (totalReservas < MAX_RESERVAS &&
+           fscanf(f, "%d;%49[^;];%10[^;];%5[^;];%d\n",
+                  &reservas[totalReservas].idLab,
+                  reservas[totalReservas].solicitante,
+                  reservas[totalReservas].fecha,
+                  reservas[totalReservas].hora,
+                  &reservas[totalReservas].activa) == 5) {
+        totalReservas++;
+    }
+
+    fclose(f);
+}
+
 void menu() {
     printf("\n1) Registrar laboratorio\n");
     printf("2) Solicitar reservacion\n");
@@ -286,12 +381,14 @@ void menu() {
     printf("5) Consultar disponibilidad\n");
     printf("6) Ver historial\n");
     printf("7) Ver laboratorios\n");
-    printf("8) Salir\n");
+    printf("8) Buscar reservas por solicitante\n");
+    printf("9) Salir\n");
     printf("Solicitudes en cola: %d | Reservas: %d\n", totalCola, totalReservas);
 }
 
 int main() {
     cargarLabsIniciales();
+    cargarReservas();
     int opcion;
 
     do {
@@ -301,15 +398,16 @@ int main() {
         switch (opcion) {
             case 1: registrarLab(); break;
             case 2: solicitarReserva(); break;
-            case 3: procesarSolicitud(); break;
-            case 4: cancelarReserva(); break;
+            case 3: procesarSolicitud(); guardarReservas(); break;
+            case 4: cancelarReserva(); guardarReservas(); break;
             case 5: consultarDisponibilidad(); break;
             case 6: mostrarHistorial(); break;
             case 7: mostrarLabs(); break;
-            case 8: printf("Adios\n"); break;
+            case 8: buscarPorSolicitante(); break;
+            case 9: printf("Adios\n"); break;
             default: printf("Opcion invalida\n");
         }
-    } while (opcion != 8);
+    } while (opcion != 9);
 
     return 0;
 }
